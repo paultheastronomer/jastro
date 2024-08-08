@@ -3,6 +3,7 @@ Functions for extracting photometry
 """
 import numpy as np
 import sep
+from astropy.table import Table, hstack
 from jastro.ds9 import dset
 from jastro.reduce import find_max_pixel_value
 
@@ -13,6 +14,35 @@ from jastro.reduce import find_max_pixel_value
 # pylint: disable=consider-using-f-string
 
 # TODO: redo the output format later
+
+def wcs_phot(data, x, y, rsi, rso, aperture_radii, gain=1.00):
+    """
+    Take a corrected image array and extract photometry for a set of WCS driven
+    X and Y pixel positons. Do this for a series of aperture radii and apply
+    a gain correction to the photometry
+    """
+    col_labels = ["flux", "fluxerr", "flux_w_sky", "fluxerr_w_sky", "max_pixel_value"]
+    Tout = None
+    for r in aperture_radii:
+        flux, fluxerr, _ = sep.sum_circle(data, x, y, r,
+                                          subpix=0,
+                                          bkgann=(rsi, rso),
+                                          gain=gain)
+        flux_w_sky, fluxerr_w_sky, _ = sep.sum_circle(data, x, y, r,
+                                                      subpix=0,
+                                                      gain=gain)
+        # calculate the max pixel value in each aperture
+        max_pixel_value = np.array([find_max_pixel_value(data, int(i), int(j), int(r+1)) for i, j in zip(x, y)])
+        # build this photometry into a table
+        if Tout is None:
+            Tout = Table([flux, fluxerr, flux_w_sky, fluxerr_w_sky, max_pixel_value],
+                          names=tuple([f"{c}_{r}" for c in col_labels]))
+        else:
+            T = Table([flux, fluxerr, flux_w_sky, fluxerr_w_sky, max_pixel_value],
+                       names=tuple([f"{c}_{r}" for c in col_labels]))
+            # stack the new columns onto the RHS of the table
+            Tout = hstack([Tout, T])
+    return Tout
 
 def phot(data, shift, x, y, rsi, rso, aper_radii, filename, jd, bjd, hjd,
          phot_filename_prefix="rtp", ds9_name=None, draw_regions=False,
